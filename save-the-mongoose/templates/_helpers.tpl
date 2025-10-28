@@ -136,6 +136,24 @@ Generate MongoDB replica set key
 {{- end }}
 
 {{/*
+Compute the backup image tag based on MongoDB version
+Extracts major.minor version (e.g., 8.0 from 8.0.1 or 8.0)
+*/}}
+{{- define "save-the-mongoose.backupImageTag" -}}
+{{- if .Values.backup.image.tag }}
+{{- .Values.backup.image.tag }}
+{{- else }}
+{{- $mongoVersion := .Values.mongodb.image.tag | toString }}
+{{- $parts := splitList "." $mongoVersion }}
+{{- if ge (len $parts) 2 }}
+{{- printf "%s.%s" (index $parts 0) (index $parts 1) }}
+{{- else }}
+{{- $mongoVersion }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Get the backup S3 prefix
 */}}
 {{- define "save-the-mongoose.backupPrefix" -}}

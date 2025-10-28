@@ -392,7 +392,7 @@ This section provides a comprehensive list of all configurable parameters in the
 | `backup.failedJobsHistoryLimit` | Failed jobs to retain | `1` |
 | `backup.ttlSecondsAfterFinished` | TTL for finished jobs in seconds | `300` |
 | `backup.image.repository` | Backup image repository | `rarup1/mongodb-backup-s3` |
-| `backup.image.tag` | Backup image tag (MongoDB version) | `8.0` |
+| `backup.image.tag` | Backup image tag (auto-computed from MongoDB version if empty) | `""` |
 | `backup.image.pullPolicy` | Backup image pull policy | `IfNotPresent` |
 | `backup.s3.endpoint` | S3 endpoint | `""` |
 | `backup.s3.bucket` | S3 bucket name | `""` |

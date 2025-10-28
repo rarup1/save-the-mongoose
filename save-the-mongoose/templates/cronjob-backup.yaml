@@ -24,7 +24,7 @@ spec:
           serviceAccountName: {{ include "save-the-mongoose.serviceAccountName" . }}
           containers:
           - name: backup
-            image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+            image: "{{ .Values.backup.image.repository }}:{{ include "save-the-mongoose.backupImageTag" . }}"
             imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
             env:
             - name: MODE

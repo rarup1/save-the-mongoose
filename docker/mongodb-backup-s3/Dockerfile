@@ -8,14 +8,17 @@ LABEL description="MongoDB backup and restore to S3-compatible storage"
 LABEL version="0.1.0"
 
 # Install AWS CLI and other required tools
-RUN apt-get update && \
+# For older MongoDB images with expired GPG keys, we remove the problematic repo
+RUN rm -f /etc/apt/sources.list.d/mongodb-org*.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
         ca-certificates \
         curl \
         jq \
-    && pip3 install --no-cache-dir awscli --break-system-packages \
+    && (pip3 install --no-cache-dir awscli --break-system-packages 2>/dev/null || \
+        pip3 install --no-cache-dir awscli) \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy scripts

@@ -140,7 +140,9 @@ backup:
   # Backup image configuration
   image:
     repository: rarup1/mongodb-backup-s3
-    tag: "8.0"
+    # tag is automatically computed from mongodb.image.tag (e.g., 8.0.1 -> 8.0)
+    # Override only if you need a specific backup image version
+    tag: ""
     pullPolicy: IfNotPresent
 
   # S3 Configuration
