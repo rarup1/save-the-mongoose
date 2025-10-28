@@ -11,9 +11,8 @@ keywords:
   - s3
   - replication
   - replica-set
-home: https://github.com/yourusername/save-the-mongoose
+home: https://github.com/rarup1/save-the-mongoose
 sources:
-  - https://github.com/yourusername/save-the-mongoose
+  - https://github.com/rarup1/save-the-mongoose
 maintainers:
-  - name: Your Name
-    email: your.email@example.com
+  - name: Rupert Arup
