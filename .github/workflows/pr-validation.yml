@@ -1,0 +1,139 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  lint:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Lint chart
+        run: helm lint save-the-mongoose
+
+  template:
+    name: Template Rendering
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        scenario:
+          - name: basic
+            values: examples/basic.values.yaml
+          - name: replication
+            values: examples/replication.values.yaml
+          - name: replication-and-backup
+            values: examples/replication-and-backup.values.yaml
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Template chart - ${{ matrix.scenario.name }}
+        run: |
+          helm template test-release save-the-mongoose -f ${{ matrix.scenario.values }} > /dev/null
+          echo "Template rendering successful for ${{ matrix.scenario.name }}"
+
+  install-test:
+    name: Installation Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: test-cluster
+          wait: 120s
+
+      - name: Install chart
+        run: |
+          helm install test-release save-the-mongoose \
+            --set mongodb.auth.rootPassword=testpassword123 \
+            --wait \
+            --timeout 5m
+
+      - name: Check deployment status
+        run: |
+          kubectl get pods -l app.kubernetes.io/instance=test-release
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=test-release --timeout=300s
+
+      - name: Run Helm tests
+        run: helm test test-release
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          kubectl describe pods -l app.kubernetes.io/instance=test-release
+          kubectl logs -l app.kubernetes.io/instance=test-release --all-containers=true
+
+  version-check:
+    name: Version Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get base branch Chart.yaml
+        run: |
+          git show origin/${{ github.base_ref }}:save-the-mongoose/Chart.yaml > /tmp/base-chart.yaml || echo "version: 0.0.0" > /tmp/base-chart.yaml
+
+      - name: Check version bump
+        run: |
+          BASE_VERSION=$(grep '^version:' /tmp/base-chart.yaml | awk '{print $2}')
+          CURRENT_VERSION=$(grep '^version:' save-the-mongoose/Chart.yaml | awk '{print $2}')
+
+          echo "Base version: $BASE_VERSION"
+          echo "Current version: $CURRENT_VERSION"
+
+          # Only enforce version bump for release branches
+          if [[ "${{ github.head_ref }}" == release/* ]]; then
+            if [ "$BASE_VERSION" == "$CURRENT_VERSION" ]; then
+              echo "❌ Error: Chart version must be bumped for release branches"
+              exit 1
+            fi
+            echo "✅ Version bumped from $BASE_VERSION to $CURRENT_VERSION"
+          else
+            echo "ℹ️ Skipping version check for non-release branch"
+          fi
+
+  summary:
+    name: Validation Summary
+    runs-on: ubuntu-latest
+    needs: [lint, template, install-test]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.template.result }}" != "success" ] || \
+             [ "${{ needs.install-test.result }}" != "success" ]; then
+            echo "❌ Some validation checks failed"
+            exit 1
+          fi
+          echo "✅ All validation checks passed"

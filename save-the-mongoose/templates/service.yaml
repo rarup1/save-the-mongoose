@@ -1,0 +1,109 @@
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}-headless
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+    service-type: headless
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+  - name: mongodb
+    port: {{ .Values.service.port }}
+    targetPort: mongodb
+    protocol: TCP
+  selector:
+    {{- include "save-the-mongoose.selectorLabels" . | nindent 4 }}
+---
+{{- if .Values.service.primary.enabled }}
+# Primary service - routes to pod-0 (primary/first pod)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}-primary
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+    service-type: primary
+    {{- with .Values.service.primary.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.service.primary.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.primary.type }}
+  ports:
+  - name: mongodb
+    port: {{ .Values.service.primary.port }}
+    targetPort: mongodb
+    protocol: TCP
+    {{- if and (eq .Values.service.primary.type "NodePort") .Values.service.nodePort }}
+    nodePort: {{ .Values.service.nodePort }}
+    {{- end }}
+  selector:
+    {{- include "save-the-mongoose.selectorLabels" . | nindent 4 }}
+    statefulset.kubernetes.io/pod-name: {{ include "save-the-mongoose.fullname" . }}-0
+{{- end }}
+---
+{{- if and .Values.service.readonly.enabled .Values.replication.enabled (gt (int .Values.replication.replicaCount) 1) }}
+# Read-only service - routes to secondary replicas (pod-1, pod-2, etc.)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}-readonly
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+    service-type: readonly
+    {{- with .Values.service.readonly.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.service.readonly.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.readonly.type }}
+  ports:
+  - name: mongodb
+    port: {{ .Values.service.readonly.port }}
+    targetPort: mongodb
+    protocol: TCP
+  selector:
+    {{- include "save-the-mongoose.selectorLabels" . | nindent 4 }}
+  # Note: This service will select all pods, but pod-0 should be excluded
+  # In MongoDB, clients can specify read preference to route to secondaries
+{{- end }}
+---
+{{- if not .Values.service.primary.enabled }}
+# Default service - routes to all pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+    {{- with .Values.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - name: mongodb
+    port: {{ .Values.service.port }}
+    targetPort: mongodb
+    protocol: TCP
+    {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+    nodePort: {{ .Values.service.nodePort }}
+    {{- end }}
+  selector:
+    {{- include "save-the-mongoose.selectorLabels" . | nindent 4 }}
+{{- end }}

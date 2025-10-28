@@ -1,0 +1,275 @@
+# Default values for save-the-mongoose.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# MongoDB Configuration
+mongodb:
+  # MongoDB Docker image configuration
+  image:
+    repository: mongo
+    tag: "8.0"
+    pullPolicy: IfNotPresent
+
+  # MongoDB Authentication
+  # Root user credentials (used for admin operations)
+  auth:
+    # Enable authentication (recommended for production)
+    enabled: true
+    # Root username (default: admin)
+    rootUser: admin
+    # Root password (auto-generated and persisted if not provided)
+    rootPassword: ""
+    # Name of existing secret to use for root credentials
+    # If set, rootPassword is ignored
+    # Expected keys: mongodb-root-password
+    # existingSecret: ""
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  # Persistence configuration
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    # annotations: {}
+
+  # MongoDB configuration options
+  config:
+    # Storage engine (wiredTiger is default and recommended)
+    storageEngine: wiredTiger
+    # WiredTiger cache size (defaults to 50% of RAM - 1GB)
+    # wiredTigerCacheSizeGB: 1
+    # Oplog size in MB (required for replication)
+    oplogSizeMB: 1024
+    # Network settings
+    maxIncomingConnections: 100
+    # Logging
+    verbosity: 0
+    # Enable profiling: 0=off, 1=slow ops, 2=all ops
+    profilingLevel: 0
+    slowOpThresholdMs: 100
+
+  # Liveness probe configuration
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 6
+
+  # Readiness probe configuration
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+
+# Replication Configuration
+# MongoDB uses Replica Sets for replication
+replication:
+  # Enable replica set
+  enabled: false
+  # Replica set name (required when replication is enabled)
+  replSetName: rs0
+  # Number of replica members (minimum 3 recommended for production)
+  # This includes the primary, so replicaCount: 3 means 1 primary + 2 secondaries
+  replicaCount: 1
+  # Read preference for replica set
+  # Options: primary, primaryPreferred, secondary, secondaryPreferred, nearest
+  readPreference: primaryPreferred
+  # Arbiter configuration (optional, for tie-breaking in elections)
+  arbiter:
+    enabled: false
+
+# Service Configuration
+service:
+  # Service type
+  type: ClusterIP
+  # Port for MongoDB
+  port: 27017
+  # NodePort (only used if type is NodePort)
+  # nodePort: 30017
+  # Annotations for the service
+  annotations: {}
+  # Additional labels
+  labels: {}
+
+  # Primary service (routes to primary/first pod for read-write operations)
+  primary:
+    enabled: true
+    type: ClusterIP
+    port: 27017
+    # annotations: {}
+    # labels: {}
+
+  # Read-only service (routes to secondary replicas for read operations)
+  readonly:
+    enabled: false
+    type: ClusterIP
+    port: 27017
+    # annotations: {}
+    # labels: {}
+
+# Backup Configuration
+backup:
+  # Enable scheduled backups to S3
+  enabled: false
+  # Backup schedule (cron format)
+  # Default: Daily at 2 AM UTC
+  schedule: "0 2 * * *"
+  # Suspend the CronJob (useful for maintenance)
+  suspend: false
+  # Number of successful finished jobs to retain
+  successfulJobsHistoryLimit: 3
+  # Number of failed finished jobs to retain
+  failedJobsHistoryLimit: 1
+  # TTL for finished backup jobs (in seconds)
+  ttlSecondsAfterFinished: 300
+
+  # Backup image configuration
+  image:
+    repository: rarup1/mongodb-backup-s3
+    tag: "8.0"
+    pullPolicy: IfNotPresent
+
+  # S3 Configuration
+  s3:
+    # S3 endpoint (e.g., s3.amazonaws.com, play.min.io:9000)
+    endpoint: ""
+    # S3 bucket name
+    bucket: ""
+    # S3 region (optional for some S3-compatible services)
+    region: "us-east-1"
+    # S3 path prefix for backups
+    # Default: "release=<release-name>/namespace=<namespace>/"
+    prefix: ""
+    # S3 access credentials
+    # accessKeyId: ""
+    # secretAccessKey: ""
+    # Name of existing secret to use for S3 credentials
+    # If set, accessKeyId and secretAccessKey are ignored
+    # Expected keys: s3-access-key-id, s3-secret-access-key
+    # existingSecret: ""
+    # Force path style for S3 (required for MinIO and some S3-compatible services)
+    forcePathStyle: false
+    # Use SSL for S3 connection
+    useSSL: true
+
+  # Resource limits for backup jobs
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Service Account
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+  # Image pull secrets to attach to the service account
+  imagePullSecrets: []
+  # Example:
+  # imagePullSecrets:
+  #   - name: myregistrykey
+
+# Pod Security Context
+podSecurityContext:
+  fsGroup: 999
+  # runAsUser: 999
+  # runAsNonRoot: true
+
+# Container Security Context
+securityContext:
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 999
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+# Example anti-affinity to spread replicas across nodes:
+# affinity:
+#   podAntiAffinity:
+#     preferredDuringSchedulingIgnoredDuringExecution:
+#       - weight: 100
+#         podAffinityTerm:
+#           labelSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: save-the-mongoose
+#               app.kubernetes.io/instance: my-release
+#           topologyKey: kubernetes.io/hostname
+
+# Init containers (optional)
+initContainers:
+  - name: setup-sysctl
+    image: busybox
+    command:
+      - sh
+      - -c
+      - |
+        sysctl -w vm.max_map_count=1677720
+    securityContext:
+      privileged: true
+      runAsUser: 0
+# Example:
+# initContainers:
+#   - name: volume-permissions
+#     image: busybox
+#     command: ['sh', '-c', 'chmod -R 777 /data/db']
+#     volumeMounts:
+#       - name: data
+#         mountPath: /data/db
+
+# Extra volumes (optional)
+extraVolumes: []
+# Example:
+# extraVolumes:
+#   - name: custom-config
+#     configMap:
+#       name: my-custom-mongodb-config
+
+# Extra volume mounts (optional)
+extraVolumeMounts: []
+# Example:
+# extraVolumeMounts:
+#   - name: custom-config
+#     mountPath: /etc/mongo/custom
+
+# Extra environment variables (optional)
+extraEnvVars: []
+# Example:
+# extraEnvVars:
+#   - name: MONGO_CUSTOM_VAR
+#     value: "custom-value"

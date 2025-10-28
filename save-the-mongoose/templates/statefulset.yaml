@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "save-the-mongoose.fullname" . }}-headless
+  replicas: {{ .Values.replication.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "save-the-mongoose.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "save-the-mongoose.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "save-the-mongoose.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+      {{- if and .Values.replication.enabled .Values.mongodb.auth.enabled }}
+      - name: setup-keyfile
+        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          cp /keyfile-tmp/mongodb-replica-set-key /keyfile/mongodb-replica-set-key
+          chmod 400 /keyfile/mongodb-replica-set-key
+          chown 999:999 /keyfile/mongodb-replica-set-key
+        volumeMounts:
+        - name: keyfile-tmp
+          mountPath: /keyfile-tmp
+          readOnly: true
+        - name: keyfile
+          mountPath: /keyfile
+      {{- end }}
+      {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      containers:
+      - name: mongodb
+        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+        imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        env:
+        {{- if .Values.mongodb.auth.enabled }}
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: {{ include "save-the-mongoose.rootUser" . | quote }}
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "save-the-mongoose.secretName" . }}
+              key: mongodb-root-password
+        {{- end }}
+        {{- if .Values.replication.enabled }}
+        - name: MONGO_REPLICA_SET_NAME
+          value: {{ .Values.replication.replSetName | quote }}
+        {{- end }}
+        {{- with .Values.extraEnvVars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.replication.enabled }}
+        command:
+        - /bin/bash
+        - /scripts/setup.sh
+        {{- else }}
+        args:
+        {{- if .Values.replication.enabled }}
+        - --replSet
+        - {{ .Values.replication.replSetName }}
+        {{- if .Values.mongodb.auth.enabled }}
+        - --keyFile
+        - /etc/mongodb-keyfile/mongodb-replica-set-key
+        {{- end }}
+        {{- end }}
+        - --bind_ip_all
+        - --storageEngine
+        - {{ .Values.mongodb.config.storageEngine }}
+        - --oplogSize
+        - {{ .Values.mongodb.config.oplogSizeMB | quote }}
+        {{- if .Values.mongodb.config.wiredTigerCacheSizeGB }}
+        - --wiredTigerCacheSizeGB
+        - {{ .Values.mongodb.config.wiredTigerCacheSizeGB | quote }}
+        {{- end }}
+        {{- end }}
+        ports:
+        - name: mongodb
+          containerPort: 27017
+          protocol: TCP
+        {{- if .Values.mongodb.livenessProbe.enabled }}
+        livenessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: {{ .Values.mongodb.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.mongodb.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.mongodb.livenessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.mongodb.livenessProbe.successThreshold }}
+          failureThreshold: {{ .Values.mongodb.livenessProbe.failureThreshold }}
+        {{- end }}
+        {{- if .Values.mongodb.readinessProbe.enabled }}
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: {{ .Values.mongodb.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.mongodb.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.mongodb.readinessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.mongodb.readinessProbe.successThreshold }}
+          failureThreshold: {{ .Values.mongodb.readinessProbe.failureThreshold }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mongodb.resources | nindent 10 }}
+        volumeMounts:
+        - name: data
+          mountPath: /data/db
+        {{- if .Values.replication.enabled }}
+        - name: setup-scripts
+          mountPath: /scripts
+          readOnly: true
+        {{- if .Values.mongodb.auth.enabled }}
+        - name: keyfile
+          mountPath: /etc/mongodb-keyfile
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+      {{- if .Values.replication.enabled }}
+      - name: setup-scripts
+        configMap:
+          name: {{ include "save-the-mongoose.fullname" . }}-setup
+          defaultMode: 0755
+      {{- if .Values.mongodb.auth.enabled }}
+      - name: keyfile-tmp
+        secret:
+          secretName: {{ include "save-the-mongoose.secretName" . }}
+          items:
+          - key: mongodb-replica-set-key
+            path: mongodb-replica-set-key
+      - name: keyfile
+        emptyDir: {}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.mongodb.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      {{- with .Values.mongodb.persistence.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      accessModes:
+      - {{ .Values.mongodb.persistence.accessMode }}
+      {{- if .Values.mongodb.persistence.storageClass }}
+      storageClassName: {{ .Values.mongodb.persistence.storageClass | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.mongodb.persistence.size }}
+  {{- else }}
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  {{- end }}

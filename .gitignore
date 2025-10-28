@@ -1,0 +1,30 @@
+# Helm package files
+*.tgz
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Logs
+*.log
+.claude
+
+# local environment files
+.local/
+
+# Docker build context
+docker/**/.dockerignore
+
+# Kubernetes test artifacts
+test-*.yaml

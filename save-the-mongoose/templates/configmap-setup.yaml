@@ -1,0 +1,156 @@
+{{- if .Values.replication.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}-setup
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+data:
+  setup.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "=========================================="
+    echo "MongoDB Replica Set Setup Script"
+    echo "=========================================="
+    echo "Hostname: $(hostname)"
+    echo "Timestamp: $(date)"
+    echo ""
+
+    # Check if this is the first boot (no data directory)
+    FIRST_BOOT=false
+    if [ ! -f /data/db/WiredTiger ]; then
+      echo "First boot detected - data directory is empty"
+      FIRST_BOOT=true
+    else
+      echo "Data directory exists - this is a restart"
+    fi
+
+    # Build MongoDB arguments
+    MONGO_ARGS="--bind_ip_all --replSet {{ .Values.replication.replSetName }}"
+    MONGO_ARGS="$MONGO_ARGS --storageEngine {{ .Values.mongodb.config.storageEngine }}"
+    MONGO_ARGS="$MONGO_ARGS --oplogSize {{ .Values.mongodb.config.oplogSizeMB }}"
+    {{- if .Values.mongodb.config.wiredTigerCacheSizeGB }}
+    MONGO_ARGS="$MONGO_ARGS --wiredTigerCacheSizeGB {{ .Values.mongodb.config.wiredTigerCacheSizeGB }}"
+    {{- end }}
+
+    {{- if .Values.mongodb.auth.enabled }}
+    # On subsequent boots, use keyFile for replica set authentication
+    if [ "$FIRST_BOOT" = "false" ]; then
+      MONGO_ARGS="$MONGO_ARGS --keyFile /etc/mongodb-keyfile/mongodb-replica-set-key --auth"
+      echo "Using keyFile authentication"
+    else
+      echo "First boot - starting without keyFile to allow initialization"
+    fi
+    {{- end }}
+
+    echo "Starting MongoDB with args: $MONGO_ARGS"
+    echo ""
+
+    # Start MongoDB in background
+    mongod $MONGO_ARGS &
+    MONGO_PID=$!
+
+    # Wait for MongoDB to be ready
+    echo "Waiting for MongoDB to start..."
+    until mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
+      sleep 2
+    done
+    echo "✓ MongoDB is running"
+
+    # Only initialize on first boot
+    if [ "$FIRST_BOOT" = "true" ]; then
+      HOSTNAME=$(hostname)
+
+      if [[ "$HOSTNAME" == *"-0" ]]; then
+        echo ""
+        echo "This is pod-0 - initializing replica set..."
+
+        {{- $fullname := include "save-the-mongoose.fullname" . -}}
+        {{- $namespace := .Release.Namespace -}}
+        {{- $port := .Values.service.port -}}
+        {{- $replSetName := .Values.replication.replSetName -}}
+        {{- $replicaCount := int .Values.replication.replicaCount }}
+
+        # Initialize with only this node
+        mongosh --eval 'rs.initiate({
+          _id: "{{ $replSetName }}",
+          members: [ { _id: 0, host: "{{ $fullname }}-0.{{ $fullname }}-headless.{{ $namespace }}.svc.cluster.local:{{ $port }}", priority: 2 } ]
+        })'
+
+        echo "Waiting to become PRIMARY..."
+        sleep 10
+
+        # Wait to become primary
+        for i in {1..30}; do
+          STATE=$(mongosh --quiet --eval "rs.status().myState" 2>/dev/null || echo "0")
+          if [ "$STATE" = "1" ]; then
+            echo "✓ Became PRIMARY"
+            break
+          fi
+          sleep 2
+        done
+
+        {{- if .Values.mongodb.auth.enabled }}
+        # Create admin user
+        echo ""
+        echo "Creating admin user..."
+        mongosh admin --eval "
+        db.createUser({
+          user: '{{ include "save-the-mongoose.rootUser" . }}',
+          pwd: process.env.MONGO_INITDB_ROOT_PASSWORD,
+          roles: [ { role: 'root', db: 'admin' } ]
+        })
+        "
+        echo "✓ Admin user created"
+        {{- end }}
+
+        {{- if gt $replicaCount 1 }}
+        echo ""
+        echo "Adding secondary members..."
+        {{- range $i := until $replicaCount }}
+        {{- if ne $i 0 }}
+
+        # Wait for DNS
+        echo "Waiting for pod-{{ $i }} DNS..."
+        for attempt in {1..60}; do
+          if nslookup {{ $fullname }}-{{ $i }}.{{ $fullname }}-headless.{{ $namespace }}.svc.cluster.local >/dev/null 2>&1; then
+            echo "✓ Pod {{ $i }} DNS ready"
+            break
+          fi
+          sleep 2
+        done
+
+        mongosh --eval 'rs.add("{{ $fullname }}-{{ $i }}.{{ $fullname }}-headless.{{ $namespace }}.svc.cluster.local:{{ $port }}")' || true
+        echo "✓ Added member {{ $i }}"
+        sleep 3
+        {{- end }}
+        {{- end }}
+        {{- end }}
+
+        echo ""
+        echo "✓ Replica set initialization complete"
+        echo ""
+        mongosh --eval "rs.status().members.forEach(m => print('  - ' + m.name + ': ' + m.stateStr))"
+
+      else
+        echo ""
+        echo "This is a secondary pod - waiting for pod-0 to initialize replica set..."
+        for i in {1..120}; do
+          RS_STATUS=$(mongosh --quiet --eval "try { rs.status().ok } catch(e) { 0 }" 2>/dev/null || echo "0")
+          if [ "$RS_STATUS" = "1" ]; then
+            echo "✓ Replica set is ready"
+            break
+          fi
+          sleep 3
+        done
+      fi
+    fi
+
+    echo ""
+    echo "Setup complete - MongoDB running in foreground"
+    echo "=========================================="
+
+    # Wait for MongoDB process
+    wait $MONGO_PID
+{{- end }}

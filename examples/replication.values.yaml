@@ -1,0 +1,67 @@
+# Example values file for MongoDB with replica set (1 primary + 2 secondaries)
+# Deploy with: helm install my-mongodb ./save-the-mongoose -f examples/replication.values.yaml
+
+# Enable replica set with 3 members (1 primary + 2 secondaries)
+replication:
+  enabled: true
+  replSetName: rs0
+  replicaCount: 3
+  readPreference: primaryPreferred
+
+# MongoDB configuration
+mongodb:
+  auth:
+    enabled: true
+    rootUser: admin
+    # rootPassword will be auto-generated if not provided
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+
+  config:
+    # Increase oplog size for replica sets
+    oplogSizeMB: 2048
+    # WiredTiger cache size (optional, defaults to 50% of RAM - 1GB)
+    wiredTigerCacheSizeGB: 2
+    maxIncomingConnections: 200
+
+# Enable primary service for read-write operations
+service:
+  primary:
+    enabled: true
+    type: ClusterIP
+    port: 27017
+
+  # Enable read-only service for read operations on secondaries
+  readonly:
+    enabled: true
+    type: ClusterIP
+    port: 27017
+
+# Pod anti-affinity to spread replicas across different nodes
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: save-the-mongoose
+            app.kubernetes.io/instance: my-mongodb
+        topologyKey: kubernetes.io/hostname
+
+# Pod labels for organization
+podLabels:
+  environment: production
+  database: mongodb
+  replication: enabled

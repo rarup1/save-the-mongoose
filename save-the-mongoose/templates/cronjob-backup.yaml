@@ -1,0 +1,75 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "save-the-mongoose.fullname" . }}-backup
+  labels:
+    {{- include "save-the-mongoose.labels" . | nindent 4 }}
+    component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  suspend: {{ .Values.backup.suspend }}
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: {{ .Values.backup.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            {{- include "save-the-mongoose.selectorLabels" . | nindent 12 }}
+            component: backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "save-the-mongoose.serviceAccountName" . }}
+          containers:
+          - name: backup
+            image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+            imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
+            env:
+            - name: MODE
+              value: "backup"
+            - name: MONGODB_HOST
+              value: "{{ include "save-the-mongoose.fullname" . }}-primary.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: MONGODB_PORT
+              value: {{ .Values.service.port | quote }}
+            {{- if .Values.mongodb.auth.enabled }}
+            - name: MONGODB_USER
+              value: {{ include "save-the-mongoose.rootUser" . | quote }}
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save-the-mongoose.secretName" . }}
+                  key: mongodb-root-password
+            - name: MONGODB_AUTH_DB
+              value: "admin"
+            {{- end }}
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save-the-mongoose.s3SecretName" . }}
+                  key: s3-endpoint
+                  optional: true
+            - name: S3_BUCKET
+              value: {{ required "backup.s3.bucket is required when backup is enabled" .Values.backup.s3.bucket | quote }}
+            - name: S3_REGION
+              value: {{ .Values.backup.s3.region | quote }}
+            - name: S3_PREFIX
+              value: {{ include "save-the-mongoose.backupPrefix" . | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save-the-mongoose.s3SecretName" . }}
+                  key: s3-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save-the-mongoose.s3SecretName" . }}
+                  key: s3-secret-access-key
+            - name: S3_FORCE_PATH_STYLE
+              value: {{ .Values.backup.s3.forcePathStyle | quote }}
+            - name: S3_USE_SSL
+              value: {{ .Values.backup.s3.useSSL | quote }}
+            resources:
+              {{- toYaml .Values.backup.resources | nindent 14 }}
+{{- end }}

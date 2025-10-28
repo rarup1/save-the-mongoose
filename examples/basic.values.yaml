@@ -1,0 +1,46 @@
+# Example values file for basic MongoDB standalone deployment
+# Deploy with: helm install my-mongodb ./save-the-mongoose -f examples/basic.values.yaml
+
+# Standalone mode (no replication)
+replication:
+  enabled: false
+  replicaCount: 1
+
+# MongoDB configuration
+mongodb:
+  auth:
+    enabled: true
+    rootUser: admin
+    # rootPassword will be auto-generated if not provided
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 10Gi
+
+  config:
+    oplogSizeMB: 1024
+    maxIncomingConnections: 100
+
+# Basic service configuration
+service:
+  primary:
+    enabled: true
+    type: ClusterIP
+    port: 27017
+
+# No backups in basic mode
+backup:
+  enabled: false
+
+# Pod labels
+podLabels:
+  environment: development
+  database: mongodb

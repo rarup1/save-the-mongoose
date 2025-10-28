@@ -1,0 +1,105 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your MongoDB deployment has been created in the {{ .Release.Namespace }} namespace.
+
+** Please be patient while the chart is being deployed **
+
+MongoDB can be accessed via the following:
+
+{{- if .Values.replication.enabled }}
+
+  REPLICA SET MODE ({{ .Values.replication.replicaCount }} members)
+
+  Connection String:
+    {{ include "save-the-mongoose.connectionString" . }}
+
+  Primary (Read-Write):
+    mongodb://{{ include "save-the-mongoose.fullname" . }}-primary.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{- if and .Values.service.readonly.enabled (gt (int .Values.replication.replicaCount) 1) }}
+  Secondaries (Read-Only):
+    mongodb://{{ include "save-the-mongoose.fullname" . }}-readonly.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
+
+  Headless Service (for DNS discovery):
+    {{ include "save-the-mongoose.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+
+  Individual Members:
+  {{- range $i := until (int .Values.replication.replicaCount) }}
+    - {{ include "save-the-mongoose.fullname" $ }}-{{ $i }}.{{ include "save-the-mongoose.fullname" $ }}-headless.{{ $.Release.Namespace }}.svc.cluster.local:{{ $.Values.service.port }}
+  {{- end }}
+
+{{- else }}
+
+  STANDALONE MODE
+
+  Service:
+    mongodb://{{ include "save-the-mongoose.fullname" . }}-primary.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{- end }}
+
+{{- if .Values.mongodb.auth.enabled }}
+
+Authentication:
+  Username: {{ include "save-the-mongoose.rootUser" . }}
+
+  To get your root password:
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ include "save-the-mongoose.secretName" . }} -o jsonpath="{.data.mongodb-root-password}" | base64 -d
+
+  Connection example:
+    {{- if .Values.replication.enabled }}
+    mongosh "{{ include "save-the-mongoose.connectionString" . }}" --username {{ include "save-the-mongoose.rootUser" . }} --password <your-password> --authenticationDatabase admin
+    {{- else }}
+    mongosh mongodb://{{ include "save-the-mongoose.fullname" . }}-primary.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/admin --username {{ include "save-the-mongoose.rootUser" . }} --password <your-password>
+    {{- end }}
+
+{{- else }}
+
+WARNING: Authentication is disabled! This is not recommended for production.
+
+{{- end }}
+
+{{- if .Values.backup.enabled }}
+
+Backup Configuration:
+  Schedule: {{ .Values.backup.schedule }}
+  S3 Bucket: {{ .Values.backup.s3.bucket }}
+  S3 Prefix: {{ include "save-the-mongoose.backupPrefix" . }}
+
+  To trigger a manual backup:
+    kubectl create job --namespace {{ .Release.Namespace }} --from=cronjob/{{ include "save-the-mongoose.fullname" . }}-backup manual-backup-$(date +%s)
+
+  To check backup job status:
+    kubectl get jobs --namespace {{ .Release.Namespace }} -l component=backup
+
+{{- end }}
+
+Useful Commands:
+
+  Watch the status:
+    kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}" -w
+
+  Get pod details:
+    kubectl describe pod --namespace {{ .Release.Namespace }} {{ include "save-the-mongoose.fullname" . }}-0
+
+  View logs:
+    kubectl logs --namespace {{ .Release.Namespace }} {{ include "save-the-mongoose.fullname" . }}-0
+
+  Port-forward to access MongoDB locally:
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "save-the-mongoose.fullname" . }}-primary {{ .Values.service.port }}:{{ .Values.service.port }}
+
+  Connect via mongosh (from pod):
+    kubectl exec -it --namespace {{ .Release.Namespace }} {{ include "save-the-mongoose.fullname" . }}-0 -- mongosh{{- if .Values.mongodb.auth.enabled }} --username {{ include "save-the-mongoose.rootUser" . }} --password <your-password> --authenticationDatabase admin{{- end }}
+
+{{- if .Values.replication.enabled }}
+
+  Check replica set status:
+    kubectl exec -it --namespace {{ .Release.Namespace }} {{ include "save-the-mongoose.fullname" . }}-0 -- mongosh{{- if .Values.mongodb.auth.enabled }} --username {{ include "save-the-mongoose.rootUser" . }} --password <your-password> --authenticationDatabase admin{{- end }} --eval "rs.status()"
+
+{{- end }}
+
+For more information, visit:
+  - MongoDB Documentation: https://docs.mongodb.com/
+  - Chart Repository: {{ .Chart.Home }}
+
+Happy data storing!

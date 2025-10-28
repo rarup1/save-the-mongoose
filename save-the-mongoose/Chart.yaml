@@ -1,0 +1,19 @@
+apiVersion: v2
+name: save-the-mongoose
+description: MongoDB Helm chart with S3 backup and optional replication
+type: application
+version: 0.1.0
+appVersion: "8.0"
+keywords:
+  - mongodb
+  - database
+  - backup
+  - s3
+  - replication
+  - replica-set
+home: https://github.com/yourusername/save-the-mongoose
+sources:
+  - https://github.com/yourusername/save-the-mongoose
+maintainers:
+  - name: Your Name
+    email: your.email@example.com
