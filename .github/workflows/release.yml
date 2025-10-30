@@ -38,14 +38,17 @@ jobs:
 
       - name: Sync README to gh-pages
         run: |
+          # Save the tag name
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+
           # Checkout gh-pages branch
-          git fetch origin gh-pages || git checkout --orphan gh-pages
+          git fetch origin gh-pages
           git checkout gh-pages
 
-          # Copy README from main
-          git checkout main -- README.md
+          # Copy README from the tag
+          git checkout $TAG_NAME -- README.md
 
           # Commit and push
           git add README.md
-          git commit -m "Sync README from main" || echo "No changes to commit"
+          git commit -m "Sync README from $TAG_NAME" || echo "No changes to commit"
           git push origin gh-pages
